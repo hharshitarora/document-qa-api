@@ -1,0 +1,13 @@
+# One command to run it: `docker compose up --build`.
+# The key is read from .env on the host and passed in as an environment variable, so it
+# never enters the image.
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in .env}
+      # Uncomment to change a limit without rebuilding.
+      # MAX_QUESTIONS: 50
+      # MAX_CONCURRENT_QUESTIONS: 5

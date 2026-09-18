@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Document Q&amp;A</title>
+<style>
+  :root { --line: #d8d8d8; --muted: #666; --bad: #b3261e; }
+  * { box-sizing: border-box; }
+  body { font: 15px/1.5 -apple-system, Segoe UI, Roboto, sans-serif; margin: 0 auto; max-width: 820px; padding: 32px 16px 64px; color: #111; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.lede { color: var(--muted); margin: 0 0 24px; }
+  fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 16px; padding: 16px; }
+  legend { color: var(--muted); font-size: 13px; padding: 0 6px; }
+  label { display: block; font-size: 13px; margin: 0 0 4px; }
+  input[type=file], input[type=text] { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 4px; font: inherit; background: #fff; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .row > div { flex: 1 1 260px; }
+  .or { color: var(--muted); font-size: 13px; margin: 12px 0 8px; }
+  button { background: #111; color: #fff; border: 0; border-radius: 4px; cursor: pointer; font: inherit; padding: 10px 18px; }
+  button[disabled] { background: #999; cursor: default; }
+  #status { color: var(--muted); font-size: 13px; margin-left: 12px; }
+  #status.error { color: var(--bad); }
+  .result { border-top: 1px solid var(--line); padding: 16px 0; }
+  .q { font-weight: 600; }
+  .a { margin: 6px 0; }
+  .a.missing { color: var(--muted); font-style: italic; }
+  .cite { background: #f6f6f6; border-left: 3px solid var(--line); color: #333; font-size: 13px; margin: 6px 0; padding: 6px 10px; }
+  .cite b { font-weight: 600; }
+  .err { color: var(--bad); font-size: 13px; }
+  #meta { color: var(--muted); font-size: 13px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<h1>Document Q&amp;A</h1>
+<p class="lede">Answers come only from the document you upload, with the page or record they came from. The API explorer is at <a href="/docs">/docs</a>.</p>
+
+<form id="form">
+  <fieldset>
+    <legend>Document</legend>
+    <label for="document">PDF or JSON</label>
+    <input id="document" name="document" type="file" accept=".pdf,.json" required>
+  </fieldset>
+
+  <fieldset>
+    <legend>Questions</legend>
+    <div class="row">
+      <div>
+        <label for="question">Ask one question</label>
+        <input id="question" name="question" type="text" placeholder="Which cloud providers do you rely on?">
+      </div>
+    </div>
+    <p class="or">or upload a JSON file holding a list of questions</p>
+    <input id="questions" name="questions" type="file" accept=".json">
+  </fieldset>
+
+  <button id="submit" type="submit">Answer</button>
+  <span id="status"></span>
+</form>
+
+<div id="results"></div>
+<div id="meta"></div>
+
+<script>
+const form = document.getElementById("form");
+const statusEl = document.getElementById("status");
+const resultsEl = document.getElementById("results");
+const metaEl = document.getElementById("meta");
+const submitEl = document.getElementById("submit");
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  resultsEl.innerHTML = "";
+  metaEl.textContent = "";
+  statusEl.className = "";
+
+  const body = new FormData();
+  const documentFile = document.getElementById("document").files[0];
+  const questionsFile = document.getElementById("questions").files[0];
+  const question = document.getElementById("question").value.trim();
+
+  if (!documentFile) { return fail("Choose a document first."); }
+  if (!questionsFile && !question) { return fail("Type a question, or upload a questions file."); }
+
+  body.append("document", documentFile);
+  if (questionsFile) { body.append("questions", questionsFile); }
+  if (question) { body.append("question", question); }
+
+  submitEl.disabled = true;
+  statusEl.textContent = "Reading the document and answering...";
+  const started = performance.now();
+
+  try {
+    const response = await fetch("/qa", { method: "POST", body });
+    const payload = await response.json();
+    if (!response.ok) { return fail(payload.detail || `Request failed (${response.status}).`); }
+    render(payload, performance.now() - started);
+    statusEl.textContent = "";
+  } catch (error) {
+    fail(error.message);
+  } finally {
+    submitEl.disabled = false;
+  }
+});
+
+function fail(message) {
+  statusEl.className = "error";
+  statusEl.textContent = message;
+  submitEl.disabled = false;
+}
+
+function render(payload, elapsedMs) {
+  for (const result of payload.results) {
+    const block = document.createElement("div");
+    block.className = "result";
+
+    const question = document.createElement("div");
+    question.className = "q";
+    question.textContent = result.question;
+    block.appendChild(question);
+
+    const answer = document.createElement("div");
+    answer.className = result.found ? "a" : "a missing";
+    answer.textContent = result.answer;
+    block.appendChild(answer);
+
+    for (const citation of result.citations) {
+      const cite = document.createElement("div");
+      cite.className = "cite";
+      const label = document.createElement("b");
+      label.textContent = citation.location;
+      cite.appendChild(label);
+      cite.appendChild(document.createTextNode(
+        citation.snippet ? ` — ${citation.snippet}` : " — no exact quote returned"
+      ));
+      block.appendChild(cite);
+    }
+
+    if (result.error) {
+      const error = document.createElement("div");
+      error.className = "err";
+      error.textContent = `This question failed: ${result.error}`;
+      block.appendChild(error);
+    }
+
+    resultsEl.appendChild(block);
+  }
+
+  const answered = payload.results.filter((result) => result.found).length;
+  metaEl.textContent =
+    `${payload.document} · ${payload.chunks} chunks` +
+    `${payload.cached ? " (already indexed)" : ""} · ` +
+    `${answered} of ${payload.results.length} answered · ${(elapsedMs / 1000).toFixed(1)}s`;
+}
+</script>
+</body>
+</html>

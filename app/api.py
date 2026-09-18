@@ -6,15 +6,22 @@ the edge, so responses carry a message rather than a stack trace.
 """
 
 import json
+import uuid
+from pathlib import Path
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from app.config import settings
 from app.errors import InputError, TooLargeError, UpstreamError
+from app.logs import estimate_cost, log_event, setup_logging, timed
 from app.pipeline import prepare_document
 from app.qa import Result, answer_all
+
+setup_logging()
+
+STATIC = Path(__file__).resolve().parent.parent / "static"
 
 app = FastAPI(
     title="Document Q&A",
@@ -29,6 +36,37 @@ class QAResponse(BaseModel):
     # True when this document was already indexed, so no embedding calls were made.
     cached: bool
     results: list[Result]
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """One line per request: identifier, route, status and duration.
+
+    The id is echoed in the response header so a reported problem can be found in the
+    logs. No paths carry document or question text, so nothing sensitive is logged.
+    """
+    request_id = uuid.uuid4().hex[:12]
+    request.state.request_id = request_id
+
+    with timed() as elapsed:
+        response = await call_next(request)
+
+    log_event(
+        "request",
+        request_id=request_id,
+        method=request.method,
+        path=request.url.path,
+        status=response.status_code,
+        duration_ms=elapsed["ms"],
+    )
+    response.headers["x-request-id"] = request_id
+    return response
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    """The minimal upload page. The API explorer lives at /docs."""
+    return FileResponse(STATIC / "index.html")
 
 
 @app.exception_handler(TooLargeError)
@@ -123,6 +161,7 @@ def health() -> dict:
 
 @app.post("/qa", response_model=QAResponse)
 async def qa(
+    request: Request,
     document: UploadFile = File(..., description="the document to answer from, .pdf or .json"),
     questions: UploadFile | None = File(None, description="JSON file holding a list of questions"),
     question: str | None = Form(None, description="a single question, instead of a file"),
@@ -143,9 +182,30 @@ async def qa(
     check_questions(question_list)
 
     data = await read_upload(document, "document")
-    store, chunk_count, cached = prepare_document(data, document.filename or "")
 
-    results, _usage = await answer_all(question_list, store)
+    with timed() as indexing:
+        store, chunk_count, cached = prepare_document(data, document.filename or "")
+
+    with timed() as answering:
+        results, usage = await answer_all(question_list, store)
+
+    log_event(
+        "answered",
+        request_id=getattr(request.state, "request_id", None),
+        document=document.filename or "",
+        document_bytes=len(data),
+        chunks=chunk_count,
+        cached=cached,
+        questions=len(question_list),
+        answered=sum(1 for result in results if result.found),
+        failed=sum(1 for result in results if result.error),
+        index_ms=indexing["ms"],
+        answer_ms=answering["ms"],
+        input_tokens=usage.get("input_tokens", 0),
+        output_tokens=usage.get("output_tokens", 0),
+        estimated_cost_usd=estimate_cost(usage.get("input_tokens", 0), usage.get("output_tokens", 0)),
+    )
+
     return QAResponse(
         document=document.filename or "",
         chunks=chunk_count,

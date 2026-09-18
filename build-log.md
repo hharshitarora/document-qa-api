@@ -118,6 +118,24 @@ Both failures are on the PDF:
 
 Same root cause as the notification miss: dense-only retrieval plus a literal model. Left failing on purpose, with the numbers published.
 
+## Packaging
+Logging, verified from a real request against the running service:
+
+```
+{"time": "2026-09-18T04:20:28", "level": "info", "event": "answered", "request_id": "c654b24b54fd",
+ "document": "company-kb.json", "document_bytes": 11182, "chunks": 19, "cached": false, "questions": 1,
+ "answered": 1, "failed": 0, "index_ms": 1700, "answer_ms": 2606, "input_tokens": 1028,
+ "output_tokens": 83, "estimated_cost_usd": 0.000204}
+{"time": "2026-09-18T04:20:28", "level": "info", "event": "request", "request_id": "c654b24b54fd",
+ "method": "POST", "path": "/qa", "status": 200, "duration_ms": 4308}
+```
+
+Two lines per request, correlated by `request_id`, which is also returned in the `x-request-id` header. No document text, question text or key material in any field.
+
+The upload page is served at `/` and the API explorer at `/docs`, so there are two ways to try the service without curl.
+
+**Docker is written but not yet built:** Docker Desktop is not installed on this machine, so `Dockerfile` and `docker-compose.yml` are unverified until it is. To be built and run against the sample PDF before submitting, and the README must not claim otherwise until then.
+
 ## Sample JSON provenance
 Their "Sample JSON file" link is a spreadsheet, not JSON. Exported to CSV, then converted with `csv.DictReader` plus `json.dumps` into `samples/company-kb.json`: 19 records with `id, question, answer, comments, confidence`, dropping the unnamed export index column. Done as a one-off, no script kept.
 

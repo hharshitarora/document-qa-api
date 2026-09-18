@@ -1,0 +1,12 @@
+# Never in the image: the key, the local environment, history, caches, notes.
+.env
+.venv/
+.git/
+.gitignore
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+*.md
+!README.md
+pytest.ini
