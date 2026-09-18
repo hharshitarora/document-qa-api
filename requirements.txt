@@ -3,6 +3,9 @@ langchain-core==1.6.3
 langchain-openai==1.6.2
 langchain-protocol==0.0.19
 langchain-text-splitters==1.1.2
+# Required by the in-memory vector store for cosine similarity. It arrived as a
+# transitive dependency locally, so only a clean container build revealed it missing.
+numpy==2.4.6
 pypdf==6.19.0
 python-multipart==0.0.32
 uvicorn[standard]==0.53.0

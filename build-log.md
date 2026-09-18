@@ -134,7 +134,19 @@ Two lines per request, correlated by `request_id`, which is also returned in the
 
 The upload page is served at `/` and the API explorer at `/docs`, so there are two ways to try the service without curl.
 
-**Docker is written but not yet built:** Docker Desktop is not installed on this machine, so `Dockerfile` and `docker-compose.yml` are unverified until it is. To be built and run against the sample PDF before submitting, and the README must not claim otherwise until then.
+**The container found a bug that local runs could not.** Image built at 391MB, started healthy, and every retrieval failed with `cosine_similarity requires numpy to be installed`. `numpy` was missing from `requirements.txt`: it had been installed locally as a transitive dependency of a package since removed, so the local environment worked and a clean install did not. Pinned explicitly, rebuilt, verified.
+
+Worth noting how the failure behaved: the request still returned HTTP 200, the error was attached to that one question, and the log line read `answered: 0, failed: 1` with the full message. The per-question error handling did its job, and the structured log is what made the cause obvious in one read.
+
+**Container verified** against `document-qa-api:local`:
+- `/health` and the upload page at `/` both served.
+- Their PDF with their 5 questions: 228 chunks, questions 2 and 3 answered citing pages 45 and 17, matching the local run exactly.
+- `company-kb.json`: 19 chunks, answered from record 1; a second request reported `cached: true`.
+- A `.txt` document returned 400.
+- `docker compose config` validates.
+- 61 tests still green after adding the dependency.
+
+Docker Desktop needed WSL, which was missing: its error message said virtualisation was unsupported, while `systeminfo` showed a hypervisor present and virtualisation-based security running. `wsl --install` plus a reboot fixed it. The CLI also installs to `AppData\Local\Programs\DockerDesktopesourcesin` and is not added to PATH.
 
 ## Sample JSON provenance
 Their "Sample JSON file" link is a spreadsheet, not JSON. Exported to CSV, then converted with `csv.DictReader` plus `json.dumps` into `samples/company-kb.json`: 19 records with `id, question, answer, comments, confidence`, dropping the unnamed export index column. Done as a one-off, no script kept.

@@ -39,6 +39,7 @@ Running log, written as each choice is made. Feeds the README.
 | 33 | `python:3.11-slim` with a non-root user, dependencies in their own layer | Matches the local interpreter, keeps the image small without compiling wheels as alpine would, and nothing in the service needs root | Slim still carries glibc and a shell, so it is larger than a distroless image |
 | 34 | Key passed in at run time, never baked into the image, and `.dockerignore` excludes `.env` | An image is copied and shared; a key inside one leaks with it | Running the container needs the environment variable supplied, which is one more step for a reviewer |
 | 35 | Minimal page as one static HTML file with no framework or build step | Their rubric wants an upload and results view with polish not required, and a single file means no toolchain between a reviewer and a working page | No component structure, so it would not grow well into a real front end |
+| 36 | Every dependency pinned explicitly, including ones that arrive transitively | `numpy` was absent from requirements and the service worked locally because another package had pulled it in; the first clean container build failed every retrieval. A dependency that is not named is not a dependency you have | The list is longer and has to be maintained by hand when versions move |
 
 Starting points, to be checked in Phase 4 against what actually gets retrieved for their 5 questions.
 
