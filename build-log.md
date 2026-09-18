@@ -178,6 +178,28 @@ The evidence said an answer sat at rank 39 with compressed scores (top hits ~0.4
 
 **What the failure actually points at.** The page 21 chunk is mostly monitoring alerts with the notification sentence at its very end, so both stages judge it on its dominant topic and neither is wrong to. That is a chunking problem, not a ranking problem: splitting on section headings such as "5.12 Incident Management" would keep a section together and let it be judged as itself. Named as the next step.
 
+## Retrieval eval
+`scripts/eval_retrieval.py`: eight questions, each with the page or record that holds the answer, asserting it reaches the top 5. Embeddings only, no chat calls, so it runs in seconds.
+
+**recall@5: 6 of 8.** Both misses are the same two cases that fail the answer eval, which confirms those failures are retrieval and not prompting:
+
+| Question | Expected | Actual |
+|---|---|---|
+| Which cloud providers do you rely on? | page 17 | rank 1 |
+| Who signed the report? | page 7 | **outside the top 60** |
+| Incident notification criteria and SLAs | page 21 | **rank 36** |
+| How is data encrypted in transit? | page 67 | rank 2 |
+| What data is classified as confidential? | page 22 | rank 1 |
+| Where are your data centres located? | record 1 | rank 1 |
+| Dedicated sanctions compliance officer? | record 12 | rank 1 |
+| Monitoring unauthorised software installation? | record 2 | rank 1 |
+
+The two misses have different causes, and neither is a ranking problem:
+- **Page 7** is the signature block, a very short chunk with little text, so it embeds weakly against any question and never surfaces.
+- **Page 21** is a long chunk about monitoring alerts with the notification sentence in its last 15 characters, so it is judged on its dominant topic.
+
+Both point at chunking: short fragments starve, and long mixed-topic chunks get judged on their majority content. Section-aware splitting addresses both; a better ranker addresses neither, which the reranking experiment had already suggested.
+
 ## Sample JSON provenance
 Their "Sample JSON file" link is a spreadsheet, not JSON. Exported to CSV, then converted with `csv.DictReader` plus `json.dumps` into `samples/company-kb.json`: 19 records with `id, question, answer, comments, confidence`, dropping the unnamed export index column. Done as a one-off, no script kept.
 
