@@ -200,6 +200,20 @@ The two misses have different causes, and neither is a ranking problem:
 
 Both point at chunking: short fragments starve, and long mixed-topic chunks get judged on their majority content. Section-aware splitting addresses both; a better ranker addresses neither, which the reranking experiment had already suggested.
 
+## UI bug found while recording
+Choosing a questions file and then typing a single question sent both, and the endpoint
+preferred the file, so the typed question was answered with someone else's questions and
+no explanation. The file input also had no way to clear it once chosen.
+
+Two fixes, because one alone would have left the trap in place:
+- The page treats the two as mutually exclusive: typing a question clears a chosen file,
+  choosing a file clears the typed question, and there is a Clear file button.
+- The endpoint rejects a request carrying both with a 400 rather than silently picking
+  one. A rule enforced only in the UI is not enforced.
+
+Found by using the thing rather than testing it, which is its own lesson: every automated
+test sent one or the other, never both.
+
 ## Sample JSON provenance
 Their "Sample JSON file" link is a spreadsheet, not JSON. Exported to CSV, then converted with `csv.DictReader` plus `json.dumps` into `samples/company-kb.json`: 19 records with `id, question, answer, comments, confidence`, dropping the unnamed export index column. Done as a one-off, no script kept.
 

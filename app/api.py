@@ -171,13 +171,18 @@ async def qa(
     Questions arrive as a file, which is what the brief specifies and what a
     questionnaire looks like, or as a single `question` field for one-off use.
     """
-    if questions is None and not (question or "").strip():
+    typed = (question or "").strip()
+    if questions is None and not typed:
         raise InputError('send a questions file, or a "question" field')
+    if questions is not None and typed:
+        # Silently preferring one over the other is how a question typed after a file was
+        # chosen gets ignored without explanation.
+        raise InputError('send either a questions file or a "question" field, not both')
 
     question_list = (
         parse_questions(await read_upload(questions, "questions file"))
         if questions is not None
-        else [question.strip()]
+        else [typed]
     )
     check_questions(question_list)
 

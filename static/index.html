@@ -18,6 +18,7 @@
   .row > div { flex: 1 1 260px; }
   .or { color: var(--muted); font-size: 13px; margin: 12px 0 8px; }
   button { background: #111; color: #fff; border: 0; border-radius: 4px; cursor: pointer; font: inherit; padding: 10px 18px; }
+  button.secondary { background: #fff; border: 1px solid var(--line); color: #333; padding: 8px 14px; }
   button[disabled] { background: #999; cursor: default; }
   #status { color: var(--muted); font-size: 13px; margin-left: 12px; }
   #status.error { color: var(--bad); }
@@ -51,7 +52,10 @@
       </div>
     </div>
     <p class="or">or upload a JSON file holding a list of questions</p>
-    <input id="questions" name="questions" type="file" accept=".json">
+    <div class="row">
+      <div><input id="questions" name="questions" type="file" accept=".json"></div>
+      <div style="flex:0 0 auto"><button id="clear" type="button" class="secondary">Clear file</button></div>
+    </div>
   </fieldset>
 
   <button id="submit" type="submit">Answer</button>
@@ -63,6 +67,18 @@
 
 <script>
 const form = document.getElementById("form");
+const questionEl = document.getElementById("question");
+const questionsEl = document.getElementById("questions");
+
+// The two ways of asking are mutually exclusive, so choosing one clears the other.
+// Without this a file chosen earlier silently wins over a question typed later.
+questionEl.addEventListener("input", () => {
+  if (questionEl.value.trim()) { questionsEl.value = ""; }
+});
+questionsEl.addEventListener("change", () => {
+  if (questionsEl.files.length) { questionEl.value = ""; }
+});
+document.getElementById("clear").addEventListener("click", () => { questionsEl.value = ""; });
 const statusEl = document.getElementById("status");
 const resultsEl = document.getElementById("results");
 const metaEl = document.getElementById("meta");
@@ -76,8 +92,8 @@ form.addEventListener("submit", async (event) => {
 
   const body = new FormData();
   const documentFile = document.getElementById("document").files[0];
-  const questionsFile = document.getElementById("questions").files[0];
-  const question = document.getElementById("question").value.trim();
+  const questionsFile = questionsEl.files[0];
+  const question = questionEl.value.trim();
 
   if (!documentFile) { return fail("Choose a document first."); }
   if (!questionsFile && !question) { return fail("Type a question, or upload a questions file."); }

@@ -109,6 +109,17 @@ class TestValidation:
         assert response.status_code == 400
         assert "question" in response.json()["detail"]
 
+    def test_both_a_questions_file_and_a_question_field(self):
+        """Preferring one silently is how a question typed after a file gets ignored."""
+        response = client.post(
+            "/qa",
+            files={**document_file(), **questions_file(["Where?"])},
+            data={"question": "Which cloud providers do you rely on?"},
+        )
+
+        assert response.status_code == 400
+        assert "not both" in response.json()["detail"]
+
     def test_empty_document(self):
         response = client.post(
             "/qa",
