@@ -214,6 +214,20 @@ Two fixes, because one alone would have left the trap in place:
 Found by using the thing rather than testing it, which is its own lesson: every automated
 test sent one or the other, never both.
 
+## `pytest` failed the way a reviewer would run it
+Every test run during the build used `python -m pytest`, which puts the current directory
+on the import path. The README tells a reviewer to run `pytest`, which does not, so a
+fresh clone failed collection on all four test modules with `ModuleNotFoundError: No
+module named 'app'`.
+
+Fixed with `pythonpath = .` in `pytest.ini`, so the documented command is the one that
+works. Verified by cloning the public repo into a clean directory and running bare
+`pytest` there: 62 passed.
+
+The lesson is the fresh-clone rule, which had been written down and not actually followed
+until this point: run what the README says, from a clone, with nothing from the dev
+machine helping.
+
 ## Sample JSON provenance
 Their "Sample JSON file" link is a spreadsheet, not JSON. Exported to CSV, then converted with `csv.DictReader` plus `json.dumps` into `samples/company-kb.json`: 19 records with `id, question, answer, comments, confidence`, dropping the unnamed export index column. Done as a one-off, no script kept.
 
