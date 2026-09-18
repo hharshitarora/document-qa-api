@@ -17,6 +17,8 @@ from typing import BinaryIO
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from app.errors import InputError
+
 # A running header repeats identically at the start of most pages, so it adds no
 # information and pulls every chunk towards the same generic meaning. It is detected as
 # a text prefix shared by at least this share of pages, and only if long enough to be a
@@ -90,14 +92,17 @@ def _pdf_pages(source_file: BinaryIO | str, source: str) -> list[Document]:
     """
     from pypdf import PdfReader
 
-    reader = PdfReader(source_file)
-
-    # Two passes: the first to learn the running header, the second to build the
-    # Documents without it.
-    page_texts = [_normalise_whitespace(page.extract_text() or "") for page in reader.pages]
+    try:
+        reader = PdfReader(source_file)
+        # Two passes: the first to learn the running header, the second to build the
+        # Documents without it.
+        page_texts = [_normalise_whitespace(page.extract_text() or "") for page in reader.pages]
+    except Exception as exc:  # corrupt, truncated, or password protected
+        raise InputError(f"could not read the PDF: {exc}") from exc
     header = _find_running_header(page_texts)
 
     documents: list[Document] = []
+
     for number, page_text in enumerate(page_texts, start=1):
         text = page_text[len(header):].strip() if header and page_text.startswith(header) else page_text
         if not text:
@@ -113,6 +118,11 @@ def _pdf_pages(source_file: BinaryIO | str, source: str) -> list[Document]:
                     "locator": f"page {number}",
                 },
             )
+        )
+
+    if not documents:
+        raise InputError(
+            "no extractable text found in the PDF: it may be a scan that needs OCR"
         )
 
     return documents
@@ -163,7 +173,17 @@ def _json_records(data: object, source: str) -> list[Document]:
             )
         )
 
+    if not documents:
+        raise InputError("the JSON document holds no readable records")
+
     return documents
+
+
+def _parse_json(data: bytes) -> object:
+    try:
+        return json.loads(data)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise InputError(f"document is not valid JSON: {exc}") from exc
 
 
 def load(path: Path) -> list[Document]:
@@ -174,8 +194,8 @@ def load(path: Path) -> list[Document]:
         with open(path, "rb") as handle:
             return _pdf_pages(handle, source=name)
     if suffix == ".json":
-        return _json_records(json.loads(Path(path).read_text(encoding="utf-8")), source=name)
-    raise ValueError(f"unsupported file type '{suffix}': expected .pdf or .json")
+        return _json_records(_parse_json(Path(path).read_bytes()), source=name)
+    raise InputError(f"unsupported file type '{suffix}': expected .pdf or .json")
 
 
 def load_bytes(data: bytes, filename: str) -> list[Document]:
@@ -191,8 +211,8 @@ def load_bytes(data: bytes, filename: str) -> list[Document]:
     if suffix == ".pdf":
         return _pdf_pages(BytesIO(data), source=name)
     if suffix == ".json":
-        return _json_records(json.loads(data), source=name)
-    raise ValueError(f"unsupported file type '{suffix}': expected .pdf or .json")
+        return _json_records(_parse_json(data), source=name)
+    raise InputError(f"unsupported file type '{suffix}': expected .pdf or .json")
 
 
 def split(documents: list[Document]) -> list[Document]:

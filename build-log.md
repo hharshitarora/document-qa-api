@@ -85,6 +85,22 @@ So the plural is read as a request for the complete list of providers, and the m
 - `POST /qa` with `company-kb.json`: 19 chunks, question 4 answered partially from record 1.
 - `POST /qa` with a `.txt` file as the document: **HTTP 500**. The loader raises `ValueError`, nothing catches it. Correct diagnosis, wrong status code, and the fix belongs in the error-handling phase rather than being patched inline here.
 
+## Robustness and concurrency
+Validation, measured against the running service rather than a test client:
+
+| Request | Result |
+|---|---|
+| `.txt` as the document | 400 `unsupported file type '.txt': expected .pdf or .json` |
+| truncated JSON document | 400 `document is not valid JSON: Unterminated string ...` |
+| truncated questions file | 400 `questions file is not valid JSON: ...` |
+| 51 questions | 400 `51 questions exceeds the limit of 50 per request` |
+| neither questions file nor question field | 400 `send a questions file, or a "question" field` |
+| single `question` form field, no file | 200, answered from page 17 |
+
+**The caching mistake, worth keeping.** The first implementation cached the built index keyed by a hash of the document, but the lookup sat *after* parsing and splitting. Measured cold 11.0s, repeat 11.7s: no gain, because pypdf parsing is the slower half of preparing the sample report. Moving the hash check ahead of parsing, into `app/pipeline.py`, took a repeat request from 12.3s to 2.4s. Caching the expensive step is not the same as caching early enough to skip it.
+
+**Concurrency.** 20 questions against a cached document: 7.1s total, 0.36s per question, no errors, at 5 in flight. Sequential answering earlier measured about 1.2s per question, so roughly a 3x improvement, bounded by the semaphore rather than by the API.
+
 ## Sample JSON provenance
 Their "Sample JSON file" link is a spreadsheet, not JSON. Exported to CSV, then converted with `csv.DictReader` plus `json.dumps` into `samples/company-kb.json`: 19 records with `id, question, answer, comments, confidence`, dropping the unnamed export index column. Done as a one-off, no script kept.
 

@@ -10,6 +10,7 @@ from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_openai import OpenAIEmbeddings
 
 from app.config import settings
+from app.errors import UpstreamError
 
 # How many chunks a question retrieves. Their questions often span several facts, so
 # the answer can sit across passages; 5 is about 1500 tokens of context. See decisions.md.
@@ -23,7 +24,10 @@ def build_index(chunks: list[Document]) -> InMemoryVectorStore:
         api_key=settings.openai_api_key,
     )
     store = InMemoryVectorStore(embeddings)
-    store.add_documents(chunks)
+    try:
+        store.add_documents(chunks)
+    except Exception as exc:
+        raise UpstreamError(f"embedding call failed: {exc}") from exc
     return store
 
 
@@ -33,4 +37,7 @@ def search(store: InMemoryVectorStore, question: str, k: int = TOP_K) -> list[tu
     Scores come back alongside the text because a weak best match is itself a signal:
     it is what tells the answering step that the document may not cover the question.
     """
-    return store.similarity_search_with_score(question, k=k)
+    try:
+        return store.similarity_search_with_score(question, k=k)
+    except Exception as exc:
+        raise UpstreamError(f"embedding call failed while retrieving: {exc}") from exc

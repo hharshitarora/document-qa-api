@@ -5,11 +5,16 @@ prebuilt chain: grounding and the refusal rule decide whether an answer can be
 trusted, so they are worth owning. See decisions.md and flow.md.
 """
 
+import asyncio
+
 from langchain_core.documents import Document
+from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
 from app.config import settings
+from app.errors import UpstreamError
+from app.index import search
 
 # Their own sample answer file uses this exact string where the document has no answer.
 NOT_FOUND = "Data-Not-Found"
@@ -37,6 +42,9 @@ class Result(BaseModel):
     found: bool
     answer: str
     citations: list[Citation]
+    # Set when this one question failed. Other questions in the same request are
+    # unaffected: a batch of 50 should not be lost to one bad call. See decisions.md.
+    error: str | None = None
 
 
 # Written as prose rather than a bulleted rule list, and that is deliberate: with the
@@ -106,19 +114,30 @@ def _verify(citations: list[Citation], hits: list[tuple[Document, float]]) -> li
     return verified
 
 
-def answer(question: str, hits: list[tuple[Document, float]]) -> tuple[Result, dict]:
-    """Answer from the retrieved passages. Returns the result and token usage."""
+async def answer(question: str, hits: list[tuple[Document, float]]) -> tuple[Result, dict]:
+    """Answer from the retrieved passages. Returns the result and token usage.
+
+    Async so a batch of questions can overlap: the work is waiting on an API, not
+    computing. Retries on rate limits and transient failures are left to the OpenAI
+    client, which already does them; when it gives up, that becomes an UpstreamError.
+    """
     llm = ChatOpenAI(
         model=settings.chat_model,
         api_key=settings.openai_api_key,
         # Same question and same passages should give the same answer: this is lookup,
         # not creative writing.
         temperature=0,
+        timeout=settings.request_timeout_seconds,
         # include_raw keeps the underlying response, and with it the token counts that
         # structured output would otherwise discard.
     ).with_structured_output(ModelAnswer, include_raw=True)
 
-    response = llm.invoke(PROMPT.format(context=format_context(hits), question=question))
+    try:
+        response = await llm.ainvoke(
+            PROMPT.format(context=format_context(hits), question=question)
+        )
+    except Exception as exc:
+        raise UpstreamError(f"model call failed: {exc}") from exc
 
     parsed: ModelAnswer | None = response["parsed"]
     if parsed is None:
@@ -141,3 +160,41 @@ def answer(question: str, hits: list[tuple[Document, float]]) -> tuple[Result, d
         ),
         response["raw"].usage_metadata or {},
     )
+
+
+async def answer_all(
+    questions: list[str], store: InMemoryVectorStore
+) -> tuple[list[Result], dict]:
+    """Answer every question against one index, several at a time.
+
+    Concurrency is capped by a semaphore: unbounded fan-out on a 200-question
+    questionnaire would hit rate limits and spend money faster than it answers.
+    One question failing is reported on that question and does not sink the batch,
+    and results keep the order they were asked in.
+    """
+    limit = asyncio.Semaphore(settings.max_concurrent_questions)
+
+    async def one(question: str) -> tuple[Result, dict]:
+        async with limit:
+            try:
+                return await answer(question, search(store, question))
+            except Exception as exc:
+                return (
+                    Result(
+                        question=question,
+                        found=False,
+                        answer=NOT_FOUND,
+                        citations=[],
+                        error=str(exc),
+                    ),
+                    {},
+                )
+
+    answered = await asyncio.gather(*(one(question) for question in questions))
+
+    usage = {"input_tokens": 0, "output_tokens": 0}
+    for _result, tokens in answered:
+        usage["input_tokens"] += tokens.get("input_tokens", 0)
+        usage["output_tokens"] += tokens.get("output_tokens", 0)
+
+    return [result for result, _tokens in answered], usage

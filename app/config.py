@@ -22,6 +22,11 @@ def _load_env_file(path: Path) -> None:
         os.environ.setdefault(key.strip(), value.strip())
 
 
+def _int_env(name: str, default: int) -> int:
+    value = os.environ.get(name, "").strip()
+    return int(value) if value.isdigit() else default
+
+
 class Settings:
     def __init__(self) -> None:
         _load_env_file(ENV_FILE)
@@ -35,6 +40,14 @@ class Settings:
         # Zania's brief restricts the chat model to gpt-4o-mini.
         self.chat_model = os.environ.get("CHAT_MODEL", "gpt-4o-mini")
         self.embedding_model = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
+
+        # Limits. Modest on purpose: every one of them bounds either memory, spend or
+        # latency, and all are overridable by environment variable.
+        self.max_upload_bytes = _int_env("MAX_UPLOAD_BYTES", 20 * 1024 * 1024)
+        self.max_questions = _int_env("MAX_QUESTIONS", 50)
+        self.max_concurrent_questions = _int_env("MAX_CONCURRENT_QUESTIONS", 5)
+        self.request_timeout_seconds = _int_env("REQUEST_TIMEOUT_SECONDS", 30)
+        self.cache_documents = _int_env("CACHE_DOCUMENTS", 8)
 
     def __repr__(self) -> str:
         # Never let the key reach a log line or a traceback.

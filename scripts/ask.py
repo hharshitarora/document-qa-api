@@ -10,6 +10,7 @@ repeatedly.
 """
 
 import argparse
+import asyncio
 import json
 import sys
 import time
@@ -18,12 +19,12 @@ from pathlib import Path
 # Allow running this file directly, not only as a module.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.index import build_index, search  # noqa: E402
+from app.index import build_index  # noqa: E402
 from app.ingest import load, split  # noqa: E402
-from app.qa import answer  # noqa: E402
+from app.qa import answer_all  # noqa: E402
 
 
-def main() -> None:
+async def main() -> None:
     parser = argparse.ArgumentParser(description="Ask questions about a PDF.")
     parser.add_argument("--doc", type=Path, required=True, help="path to a .pdf or .json document")
     parser.add_argument("--questions", type=Path, help="JSON file holding a list of questions")
@@ -44,21 +45,20 @@ def main() -> None:
     store = build_index(chunks)
     print(f"{len(chunks)} chunks indexed in {time.perf_counter() - started:.1f}s\n")
 
-    tokens_in = tokens_out = 0
-    for number, question in enumerate(questions, start=1):
-        result, usage = answer(question, search(store, question))
-        tokens_in += usage.get("input_tokens", 0)
-        tokens_out += usage.get("output_tokens", 0)
+    results, usage = await answer_all(questions, store)
 
-        print(f"{number}. {question}")
+    for number, result in enumerate(results, start=1):
+        print(f"{number}. {result.question}")
         print(f"   {result.answer}")
+        if result.error:
+            print(f"   error: {result.error}")
         for citation in result.citations:
             print(f"   {citation.location}: {citation.snippet or '(no exact quote returned)'}")
         print()
 
     print(
-        f"{len(questions)} questions, {tokens_in} tokens in, {tokens_out} out, "
-        f"{time.perf_counter() - started:.1f}s total"
+        f"{len(results)} questions, {usage['input_tokens']} tokens in, "
+        f"{usage['output_tokens']} out, {time.perf_counter() - started:.1f}s total"
     )
 
 
@@ -66,4 +66,4 @@ if __name__ == "__main__":
     # The Windows console defaults to cp1252 and the document contains characters it
     # cannot encode.
     sys.stdout.reconfigure(encoding="utf-8")
-    main()
+    asyncio.run(main())
