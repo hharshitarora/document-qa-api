@@ -101,6 +101,23 @@ Validation, measured against the running service rather than a test client:
 
 **Concurrency.** 20 questions against a cached document: 7.1s total, 0.36s per question, no errors, at 5 in flight. Sequential answering earlier measured about 1.2s per question, so roughly a 3x improvement, bounded by the semaphore rather than by the API.
 
+## Tests
+61 tests, offline, about 1.2 seconds: ingest and cleaning (23), verification and answering (15), the endpoint (18), the cache (5).
+
+- The fake chat model has to imitate `with_structured_output(..., include_raw=True)`, which returns `{parsed, raw, parsing_error}` rather than text.
+- Two header tests failed first time and both were bad fixtures, not bad code: giving every page identical body text made the shared prefix run past the header into the body. Realistic fixtures with differing bodies pass.
+- One test found a real gap: a questions file shaped `{"nope": 1}` fell through to "no questions were provided", which does not say what is wrong. Now it says the object needs a `"questions"` key.
+- The cache tests count parses and index builds rather than timing anything, so they prove the repeat request skips both.
+
+## Answer quality, `scripts/eval.py`
+Nine cases across both files, each asserting the found/not-found decision and that any answer carries a citation. **7 of 9.** 10,065 input tokens, 272 output.
+
+Both failures are on the PDF:
+- "Is personal information disclosed to third parties?" returns not found, although the longer original wording of the same question answers from page 45. Phrasing changes retrieval.
+- "Who signed the report?" returns not found, although page 7 holds the signature block naming the CEO. The model will not infer that a signature answers "who signed".
+
+Same root cause as the notification miss: dense-only retrieval plus a literal model. Left failing on purpose, with the numbers published.
+
 ## Sample JSON provenance
 Their "Sample JSON file" link is a spreadsheet, not JSON. Exported to CSV, then converted with `csv.DictReader` plus `json.dumps` into `samples/company-kb.json`: 19 records with `id, question, answer, comments, confidence`, dropping the unnamed export index column. Done as a one-off, no script kept.
 

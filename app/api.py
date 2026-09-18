@@ -62,7 +62,9 @@ def parse_questions(data: bytes) -> list[str]:
         raise InputError(f"questions file is not valid JSON: {exc}") from exc
 
     if isinstance(payload, dict):
-        payload = payload.get("questions", [])
+        if "questions" not in payload:
+            raise InputError('questions file must hold a list, or an object with a "questions" key')
+        payload = payload["questions"]
     if not isinstance(payload, list):
         raise InputError('questions file must hold a list, or an object with a "questions" list')
 
