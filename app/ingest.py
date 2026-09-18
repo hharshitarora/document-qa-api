@@ -7,6 +7,7 @@ worth paying to read one text-based PDF. Reading pages ourselves is a few lines 
 keeps control over the metadata that citations depend on.
 """
 
+import json
 import re
 from collections import Counter
 from pathlib import Path
@@ -102,19 +103,85 @@ def load_pdf(path: Path) -> list[Document]:
         documents.append(
             Document(
                 page_content=text,
-                metadata={"source": Path(path).name, "page": number},
+                metadata={
+                    "source": Path(path).name,
+                    "page": number,
+                    # One label for both file types, so citations read the same whether
+                    # the source has pages or records. See decisions.md.
+                    "locator": f"page {number}",
+                },
             )
         )
 
     return documents
 
 
+def _flatten(record: object) -> str:
+    """A JSON value as readable text.
+
+    Objects become `key: value` lines, which keeps the field names in the embedded
+    text: a question asking about data centres should match a record whose key is
+    "answer" and whose value mentions them. Nested values are dumped back to JSON
+    rather than dropped, so nothing in the file is silently lost.
+    """
+    if isinstance(record, dict):
+        lines = []
+        for key, value in record.items():
+            text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+            if str(text).strip():
+                lines.append(f"{key}: {text}")
+        return "\n".join(lines)
+    if isinstance(record, list):
+        return "\n".join(_flatten(item) for item in record)
+    return "" if record is None else str(record)
+
+
+def load_json(path: Path) -> list[Document]:
+    """One Document per record, with a record number for citations.
+
+    No assumption is made about the shape: the brief promises only that the API
+    accepts JSON. A list becomes one Document per item, a single object becomes one
+    Document. See decisions.md.
+    """
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    records = data if isinstance(data, list) else [data]
+
+    documents: list[Document] = []
+    for number, record in enumerate(records, start=1):
+        text = _normalise_whitespace(_flatten(record)) if not isinstance(record, dict) else _flatten(record)
+        if not text.strip():
+            continue
+        documents.append(
+            Document(
+                page_content=text,
+                metadata={
+                    "source": Path(path).name,
+                    "record": number,
+                    "locator": f"record {number}",
+                },
+            )
+        )
+
+    return documents
+
+
+def load(path: Path) -> list[Document]:
+    """Load a document by file type. The only place file types are decided."""
+    suffix = Path(path).suffix.lower()
+    if suffix == ".pdf":
+        return load_pdf(path)
+    if suffix == ".json":
+        return load_json(path)
+    raise ValueError(f"unsupported file type '{suffix}': expected .pdf or .json")
+
+
 def split(documents: list[Document]) -> list[Document]:
-    """Split each page into overlapping chunks, carrying the page metadata along.
+    """Split each Document into overlapping chunks, carrying its metadata along.
 
     Splitting is per page and pages are never joined, so every chunk can name the
     page it came from. The cost is that a control spanning a page break is split
-    with no overlap to rescue it. See decisions.md.
+    with no overlap to rescue it. JSON records are usually short enough to stay whole.
+    See decisions.md.
     """
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,

@@ -54,6 +54,30 @@ Run across all 5 appendix questions plus a planted unanswerable one, 6259 input 
 
 Their own spreadsheet answers contain facts like "US Central region" that appear nowhere in the PDF, and cite an internal knowledge base file as their source. So the two sample files in the appendix are not a matched pair: the questions were written against their knowledge base, not against the Nave report. The refusals are correct behaviour, but four not-founds could read as a broken app, so the README has to carry this evidence.
 
+## JSON path, and two model-behaviour findings
+JSON loading added, one Document per record, citations labelled `record N`. 19 records become 19 chunks, indexed in under a second.
+
+**Over-refusal on a borderline question.** "Which cloud providers do you rely on?" retrieved record 1 at rank 1 with the run's best score, 0.48, and that record plainly says "hosted within Google Cloud Platform (GCP)". The model still set `found` to false. Rewording the question showed why:
+- "Which cloud providers do you rely on?" → refused
+- "Which cloud provider hosts your infrastructure?" → answered, GCP
+- "Do you use Google Cloud Platform?" → answered, yes
+
+So the plural is read as a request for the complete list of providers, and the model declines rather than imply GCP is all of them. Careful behaviour, not a fault, but it exposed that only two outcomes existed: a full answer or nothing.
+
+**Partial answers needed an example, not an instruction.** Three prompt variants, same context:
+- Strict rule: refused.
+- "Answer whatever the passages support, even if only part": still refused.
+- Same, plus one worked example: answered, and still refused the planted unanswerable question.
+
+**Prose beats bullets.** The winning wording, moved into the app as a bulleted list under a "Rules:" heading, went back to refusing. Removing the citation rule, the records sentence, and the "leave answer empty" clause one at a time did not change it, twice each at temperature 0. As prose, it answers. Same instructions, different layout, different behaviour on borderline questions.
+
+## Coverage of their 5 questions, both files
+- Q2 third parties: answered from the PDF, page 45, quote verified.
+- Q3 cloud providers: answered from the PDF, page 17, quote verified.
+- Q4 data centre region: answered from the JSON, record 1, partially, naming the missing backup locations.
+- Q5 APM, EUM, DEM: those acronyms appear 0 times in either file. Genuinely unanswerable, though a partial answer about anomaly monitoring would be possible.
+- Q1 notification criteria and SLAs: **a retrieval miss, not a refusal.** The PDF names a "Breach Notification Policy" on page 20, and no chunk containing the word "notification" appears in the top 25 for that question. Tested at k=5, 10, 15 and 20: `Data-Not-Found` at every depth. Page 20 is a bare list of policy titles and the question is a long two-part sentence, so they sit far apart in embedding space regardless of depth. Keyword search finds it instantly, which is why hybrid retrieval is the right fix and why raising k is not.
+
 ## Sample JSON provenance
 Their "Sample JSON file" link is a spreadsheet, not JSON. Exported to CSV, then converted with `csv.DictReader` plus `json.dumps` into `samples/company-kb.json`: 19 records with `id, question, answer, comments, confidence`, dropping the unnamed export index column. Done as a one-off, no script kept.
 
