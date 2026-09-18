@@ -1,5 +1,6 @@
-"""Ask one question about one document, from the command line.
+"""Ask questions about a document from the command line.
 
+    python scripts/ask.py --doc samples/nave-soc2-type2.pdf --questions samples/questions.json
     python scripts/ask.py --doc samples/nave-soc2-type2.pdf --question "Which cloud providers do you rely on?"
 
 The document is re-read and re-embedded on every run, which costs a few seconds and a
@@ -8,6 +9,7 @@ repeatedly.
 """
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -21,24 +23,42 @@ from app.qa import answer  # noqa: E402
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Ask a question about a PDF.")
+    parser = argparse.ArgumentParser(description="Ask questions about a PDF.")
     parser.add_argument("--doc", type=Path, required=True, help="path to a PDF")
-    parser.add_argument("--question", required=True)
+    parser.add_argument("--questions", type=Path, help="JSON file holding a list of questions")
+    parser.add_argument("--question", help="a single question")
     args = parser.parse_args()
+
+    if not args.questions and not args.question:
+        parser.error("pass --questions or --question")
+
+    questions: list[str] = (
+        json.loads(args.questions.read_text(encoding="utf-8")) if args.questions else []
+    )
+    if args.question:
+        questions.append(args.question)
 
     started = time.perf_counter()
     chunks = split(load_pdf(args.doc))
     store = build_index(chunks)
-    indexed = time.perf_counter() - started
+    print(f"{len(chunks)} chunks indexed in {time.perf_counter() - started:.1f}s\n")
 
-    hits = search(store, args.question)
-    text, usage = answer(args.question, hits)
+    tokens_in = tokens_out = 0
+    for number, question in enumerate(questions, start=1):
+        result, usage = answer(question, search(store, question))
+        tokens_in += usage.get("input_tokens", 0)
+        tokens_out += usage.get("output_tokens", 0)
 
-    print(f"\nQ: {args.question}")
-    print(f"A: {text}\n")
-    print(f"pages retrieved: {[doc.metadata['page'] for doc, _ in hits]}")
-    print(f"chunks: {len(chunks)}  index: {indexed:.1f}s  total: {time.perf_counter() - started:.1f}s")
-    print(f"tokens: {usage.get('input_tokens')} in, {usage.get('output_tokens')} out")
+        print(f"{number}. {question}")
+        print(f"   {result.answer}")
+        for citation in result.citations:
+            print(f"   page {citation.page}: {citation.snippet or '(no exact quote returned)'}")
+        print()
+
+    print(
+        f"{len(questions)} questions, {tokens_in} tokens in, {tokens_out} out, "
+        f"{time.perf_counter() - started:.1f}s total"
+    )
 
 
 if __name__ == "__main__":

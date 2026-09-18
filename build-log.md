@@ -37,5 +37,25 @@ Unanswerable question, "What is the CEO's home address?":
 
 **Defect found, deferred to Phase 4.** The answerable question returned a correct answer *and* appended `Data-Not-Found`. The prompt says to use that string when the passages do not contain the answer, and the model read it as something to add rather than something to replace. Any parser reading that result would treat a good answer as a refusal. A one-sentence prompt patch would hide it; the real fix is a structured response where the answer and the found/not-found state are separate fields, so the contradiction cannot be expressed. Left in place deliberately at the end of Phase 3.
 
+## Structured answers, and what the sample PDF actually covers
+The Phase 3 defect is gone: the model now fills `found`, `answer` and `citations` as separate fields, so an answer can no longer carry a refusal string inside it.
+
+Run across all 5 appendix questions plus a planted unanswerable one, 6259 input tokens, 97 output, 19.6s including a 10s index build:
+- Question 3, cloud providers: answered, "GCP (Google Cloud Platform) is the cloud provider relied on for hosting and infrastructure", cited page 17 with an exact quote that passed verification.
+- Questions 1, 2, 4, 5 and the planted one: `Data-Not-Found`.
+
+**Verification was not the cause.** Instrumented the model's raw output against the verified output: the model itself set `found` to false on all four, with no citations offered. So the refusals come from the passages, not from our checking.
+
+**The sample PDF does not contain those answers.** Term counts across all 84 pages:
+- "region": 0 occurrences, so question 4 (data centre region) cannot be answered.
+- "APM": 0, so question 5 (APM, EUM, DEM by name) cannot be answered.
+- "personal information": 0, so question 2 as phrased cannot be answered.
+- Notification: the document lists a "Breach Notification Policy" by name and states no criteria or timeframes. Pulled the closest passages by hand at k=20; the best are about vendor relationships at 0.44. There is no answer to find for question 1.
+
+Their own spreadsheet answers contain facts like "US Central region" that appear nowhere in the PDF, and cite an internal knowledge base file as their source. So the two sample files in the appendix are not a matched pair: the questions were written against their knowledge base, not against the Nave report. The refusals are correct behaviour, but four not-founds could read as a broken app, so the README has to carry this evidence.
+
+## Sample JSON provenance
+Their "Sample JSON file" link is a spreadsheet, not JSON. Exported to CSV, then converted with `csv.DictReader` plus `json.dumps` into `samples/company-kb.json`: 19 records with `id, question, answer, comments, confidence`, dropping the unnamed export index column. Done as a one-off, no script kept.
+
 Question with no answer in the document: "What is the CEO's home address?"
 - Best score 0.289 against 0.401 for the real question. **The gap is thin**, which is evidence that a fixed similarity threshold for "not found" would be fragile and that refusal belongs in the answering step instead.
