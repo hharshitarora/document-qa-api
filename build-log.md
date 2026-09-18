@@ -78,6 +78,13 @@ So the plural is read as a request for the complete list of providers, and the m
 - Q5 APM, EUM, DEM: those acronyms appear 0 times in either file. Genuinely unanswerable, though a partial answer about anomaly monitoring would be possible.
 - Q1 notification criteria and SLAs: **a retrieval miss, not a refusal.** The PDF names a "Breach Notification Policy" on page 20, and no chunk containing the word "notification" appears in the top 25 for that question. Tested at k=5, 10, 15 and 20: `Data-Not-Found` at every depth. Page 20 is a bare list of policy titles and the question is a long two-part sentence, so they sit far apart in embedding space regardless of depth. Keyword search finds it instantly, which is why hybrid retrieval is the right fix and why raising k is not.
 
+## API
+`uvicorn app.api:app`, then real uploads rather than a test client:
+- `GET /health` returns status and both model names, no key material.
+- `POST /qa` with their PDF and their questions file: 228 chunks, 5 results, questions 2 and 3 answered with verified citations on pages 45 and 17. Same output as the command line, which is the point of sharing one set of parsers.
+- `POST /qa` with `company-kb.json`: 19 chunks, question 4 answered partially from record 1.
+- `POST /qa` with a `.txt` file as the document: **HTTP 500**. The loader raises `ValueError`, nothing catches it. Correct diagnosis, wrong status code, and the fix belongs in the error-handling phase rather than being patched inline here.
+
 ## Sample JSON provenance
 Their "Sample JSON file" link is a spreadsheet, not JSON. Exported to CSV, then converted with `csv.DictReader` plus `json.dumps` into `samples/company-kb.json`: 19 records with `id, question, answer, comments, confidence`, dropping the unnamed export index column. Done as a one-off, no script kept.
 

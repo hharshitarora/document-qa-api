@@ -10,7 +10,9 @@ keeps control over the metadata that citations depend on.
 import json
 import re
 from collections import Counter
+from io import BytesIO
 from pathlib import Path
+from typing import BinaryIO
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -80,7 +82,7 @@ def _find_running_header(page_texts: list[str]) -> str:
     return ""
 
 
-def load_pdf(path: Path) -> list[Document]:
+def _pdf_pages(source_file: BinaryIO | str, source: str) -> list[Document]:
     """One Document per page, with a 1-based page number for citations.
 
     Pages that hold no extractable text (scans, image-only pages) are skipped:
@@ -88,7 +90,7 @@ def load_pdf(path: Path) -> list[Document]:
     """
     from pypdf import PdfReader
 
-    reader = PdfReader(str(path))
+    reader = PdfReader(source_file)
 
     # Two passes: the first to learn the running header, the second to build the
     # Documents without it.
@@ -104,7 +106,7 @@ def load_pdf(path: Path) -> list[Document]:
             Document(
                 page_content=text,
                 metadata={
-                    "source": Path(path).name,
+                    "source": source,
                     "page": number,
                     # One label for both file types, so citations read the same whether
                     # the source has pages or records. See decisions.md.
@@ -136,14 +138,13 @@ def _flatten(record: object) -> str:
     return "" if record is None else str(record)
 
 
-def load_json(path: Path) -> list[Document]:
+def _json_records(data: object, source: str) -> list[Document]:
     """One Document per record, with a record number for citations.
 
     No assumption is made about the shape: the brief promises only that the API
     accepts JSON. A list becomes one Document per item, a single object becomes one
     Document. See decisions.md.
     """
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
     records = data if isinstance(data, list) else [data]
 
     documents: list[Document] = []
@@ -155,7 +156,7 @@ def load_json(path: Path) -> list[Document]:
             Document(
                 page_content=text,
                 metadata={
-                    "source": Path(path).name,
+                    "source": source,
                     "record": number,
                     "locator": f"record {number}",
                 },
@@ -166,12 +167,31 @@ def load_json(path: Path) -> list[Document]:
 
 
 def load(path: Path) -> list[Document]:
-    """Load a document by file type. The only place file types are decided."""
+    """Load a document from disk. Used by the command-line runner."""
+    name = Path(path).name
     suffix = Path(path).suffix.lower()
     if suffix == ".pdf":
-        return load_pdf(path)
+        with open(path, "rb") as handle:
+            return _pdf_pages(handle, source=name)
     if suffix == ".json":
-        return load_json(path)
+        return _json_records(json.loads(Path(path).read_text(encoding="utf-8")), source=name)
+    raise ValueError(f"unsupported file type '{suffix}': expected .pdf or .json")
+
+
+def load_bytes(data: bytes, filename: str) -> list[Document]:
+    """Load an uploaded document from memory.
+
+    Uploads are parsed in memory rather than spooled to a temporary file: document
+    text is customer data and the service deliberately never writes it to disk.
+    Same parsers as `load`, so the API and the command line cannot drift apart.
+    See decisions.md.
+    """
+    name = Path(filename or "").name
+    suffix = Path(name).suffix.lower()
+    if suffix == ".pdf":
+        return _pdf_pages(BytesIO(data), source=name)
+    if suffix == ".json":
+        return _json_records(json.loads(data), source=name)
     raise ValueError(f"unsupported file type '{suffix}': expected .pdf or .json")
 
 
