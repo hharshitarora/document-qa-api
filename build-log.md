@@ -165,6 +165,19 @@ Cause: pages 71 to 79 are the control-testing matrix, dozens of chunks of near-i
 
 Eval after both changes: **9 of 11**, both remaining failures being retrieval misses, kept as visible cases rather than deleted.
 
+## Reranking: built, measured, reverted
+The evidence said an answer sat at rank 39 with compressed scores (top hits ~0.45, page 21 at 0.41), which is the textbook case for a second stage. Built one: fetch 40 candidates by vector, have gpt-4o-mini pick the 5 that bear on the question, fall back to vector order on failure, all behind a `RERANK` switch.
+
+**First attempt failed for an instructive reason.** Candidates were truncated to a 400-character preview to keep the call cheap. Page 21 reached the reranker at candidate position 37 and was still not chosen, because the sentence that answers the question sits at **character 1006 of a 1021-character chunk**: the preview showed a list of CPU and memory alerts. A relevance judgement cannot be made from text that excludes the relevant part.
+
+**Second attempt, full chunks shown.** Page 21 was still not chosen. The model ranked pages 48, 78, 79 and 41 above it, all control-matrix entries about incident response, and the answering step still refused from them.
+
+**Measured both ways:** 9 of 11 with reranking off, 9 of 11 with it on. No case improved. Cost: one extra model call per question, about 10,000 extra input tokens, plus a round trip.
+
+**Reverted.** A stage that improves nothing is complexity to defend for no return.
+
+**What the failure actually points at.** The page 21 chunk is mostly monitoring alerts with the notification sentence at its very end, so both stages judge it on its dominant topic and neither is wrong to. That is a chunking problem, not a ranking problem: splitting on section headings such as "5.12 Incident Management" would keep a section together and let it be judged as itself. Named as the next step.
+
 ## Sample JSON provenance
 Their "Sample JSON file" link is a spreadsheet, not JSON. Exported to CSV, then converted with `csv.DictReader` plus `json.dumps` into `samples/company-kb.json`: 19 records with `id, question, answer, comments, confidence`, dropping the unnamed export index column. Done as a one-off, no script kept.
 
