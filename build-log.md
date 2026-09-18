@@ -146,7 +146,24 @@ Worth noting how the failure behaved: the request still returned HTTP 200, the e
 - `docker compose config` validates.
 - 61 tests still green after adding the dependency.
 
-Docker Desktop needed WSL, which was missing: its error message said virtualisation was unsupported, while `systeminfo` showed a hypervisor present and virtualisation-based security running. `wsl --install` plus a reboot fixed it. The CLI also installs to `AppData\Local\Programs\DockerDesktopesourcesin` and is not added to PATH.
+Docker Desktop needed WSL, which was missing: its error message said virtualisation was unsupported, while `systeminfo` showed a hypervisor present and virtualisation-based security running. `wsl --install` plus a reboot fixed it. The CLI also installs to `AppData\Local\Programs\DockerDesktop
+esourcesin` and is not added to PATH.
+
+## Independent review, and what it found
+An external review of the container's output on their 5 questions scored it 3 of 5 and named two failures. Both checked out against the document.
+
+**Over-inference on question 2, the serious one.** The system answered "Yes, personal information is transmitted, processed, stored, or disclosed to third parties", citing page 45. The quote was real, but the passage describes a vendor risk assessment control: it never states that personal information flows to vendors. The report's header reads "Controls Relevant To Security" and it carries a section titled "Disclosures of out of scope Trust Services Criteria", so confidentiality and privacy are outside its scope entirely. A control's existence had been converted into a factual claim about what the company does.
+
+Fixed in the prompt: a passage describing a policy, control or auditor's test is evidence the control exists, not that the activity happens. Two eval cases now pin it, and both pass.
+
+**Under-retrieval on question 1, confirmed and not cheaply fixable.** Page 21 states "Nave will inform all necessary parties of the incident without undue delay", which supports a partial answer. Measurements:
+- The page 21 chunk ranks **39th** for the full question.
+- Shorter queries ("incident notification", "how are customers informed of a security incident") do not surface it in the top 10 either.
+- Maximum marginal relevance at fetch_k 20 and 40, lambda 0.5 and 0.3, never returns it.
+
+Cause: pages 71 to 79 are the control-testing matrix, dozens of chunks of near-identical compliance language that crowd out the one narrative page answering the question. Note the page contains no form of the word "notify" or "notification", which is why an earlier keyword sweep missed it too. The fix is keyword retrieval alongside vectors, or splitting multi-part questions and retrieving per part. Left as a documented limitation.
+
+Eval after both changes: **9 of 11**, both remaining failures being retrieval misses, kept as visible cases rather than deleted.
 
 ## Sample JSON provenance
 Their "Sample JSON file" link is a spreadsheet, not JSON. Exported to CSV, then converted with `csv.DictReader` plus `json.dumps` into `samples/company-kb.json`: 19 records with `id, question, answer, comments, confidence`, dropping the unnamed export index column. Done as a one-off, no script kept.

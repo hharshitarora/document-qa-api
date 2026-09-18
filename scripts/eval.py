@@ -24,13 +24,27 @@ PDF = Path("samples/nave-soc2-type2.pdf")
 KB = Path("samples/company-kb.json")
 
 # (document, question, should the document answer it, why)
+#
+# "Answerable" means the passages support some answer, including a partial one. Cases
+# marked unanswerable are the ones that matter most: a questionnaire tool that invents
+# a confident Yes is worse than one that declines.
 CASES = [
     (PDF, "Which cloud providers do you rely on?", True, "the report names GCP as its hosting provider"),
-    (PDF, "Is personal information disclosed to third parties?", True, "vendor management and third-party review are described"),
     (PDF, "Who signed the report?", True, "the signature block names the CEO"),
     (PDF, "What is the CEO's home address?", False, "nowhere in the report"),
     (PDF, "What is the company's revenue?", False, "a SOC 2 report carries no financials"),
     (PDF, "Which APM tool is used: Datadog or New Relic?", False, "no APM product is named anywhere"),
+    # Control-versus-fact: the report describes a vendor risk programme and never states
+    # that personal information is sent to third parties. An external review caught the
+    # system answering "Yes" here off the back of that control text.
+    (PDF, "Is personal information transmitted, processed, stored, or disclosed to or retained by third parties?", False,
+     "the report describes vendor risk controls but never says personal information flows to vendors, and confidentiality and privacy are out of its scope"),
+    (PDF, "Do you encrypt customer data before sending it to subprocessors?", False,
+     "an encryption policy exists, but no passage states this specific practice"),
+    # Known failure, kept visible: the answer is on page 21, which ranks 39th. Dense
+    # retrieval cannot reach it, and neither depth nor diversity fixes that.
+    (PDF, "Do you have formally defined criteria for notifying a client during an incident? What are your SLAs?", True,
+     "page 21 says Nave will inform all necessary parties without undue delay, so a partial answer exists"),
     (KB, "Where are your data centres located?", True, "record 1 says US Central on GCP"),
     (KB, "Do you have a dedicated sanctions compliance officer?", True, "answered as No, with a reason"),
     (KB, "How many employees do you have?", False, "no record covers headcount"),
